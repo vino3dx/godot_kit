@@ -1,0 +1,132 @@
+extends Node
+
+## 离线授权许可管理
+##
+## 【功能】
+## AES-256-CBC 解密
+## 读取 license.dat
+## 校验授权到期时间
+## 支持编辑器与导出环境
+## 授权失效自动退出
+##
+## 【授权结构】
+## { "expire": "2027-12-30" }
+
+var KEY: PackedByteArray
+var IV: PackedByteArray
+
+func _ready():
+	KEY = "1234567890ABCDEF1234567890ABCDEF".to_utf8_buffer()
+	IV  = "ABCDEF1234567890".to_utf8_buffer()
+	
+	# 启动时自动检查，过期则静默退出
+	if not check_license():
+		await get_tree().process_frame
+		get_tree().quit()
+
+# =========================
+# 获取 license 路径
+# =========================
+func get_license_path() -> String:
+	if OS.has_feature("editor"):
+		return ProjectSettings.globalize_path("res://") + "license.dat"
+	return OS.get_executable_path().get_base_dir() + "/license.dat"
+
+# =========================
+# 读取文件
+# =========================
+func read_file(path: String) -> String:
+	if not FileAccess.file_exists(path):
+		return ""
+	var f = FileAccess.open(path, FileAccess.READ)
+	if f == null:
+		return ""
+	var txt = f.get_as_text()
+	f.close()
+	return txt.strip_edges().replace("\n", "").replace("\r", "").replace(" ", "")
+
+# =========================
+# AES-256-CBC 解密
+# =========================
+func decrypt(base64_text: String) -> String:
+	var encrypted: PackedByteArray = Marshalls.base64_to_raw(base64_text)
+	if encrypted.size() == 0:
+		return ""
+	
+	var aes := AESContext.new()
+	aes.start(AESContext.MODE_CBC_DECRYPT, KEY, IV)
+	var decrypted: PackedByteArray = aes.update(encrypted)
+	aes.finish()
+	
+	if decrypted.size() == 0:
+		return ""
+	
+	# 去除 PKCS7 padding
+	var pad_len = decrypted[decrypted.size() - 1]
+	if pad_len >= 1 and pad_len <= 16:
+		for i in range(pad_len):
+			if decrypted[decrypted.size() - 1 - i] != pad_len:
+				return ""
+		decrypted = decrypted.slice(0, decrypted.size() - pad_len)
+	
+	return decrypted.get_string_from_utf8()
+
+# =========================
+# JSON 解析
+# =========================
+func parse_json(text: String) -> Dictionary:
+	var result = JSON.parse_string(text)
+	if result == null or not result is Dictionary:
+		return {}
+	return result
+
+# =========================
+# 日期比较（返回 1=未过期  -1=已过期  0=异常）
+# =========================
+func _check_expire(expire: String) -> int:
+	# 格式 YYYY-MM-DD，直接字符串比较即可（ISO 8601 天然可排序）
+	var today = Time.get_date_string_from_system(true)  # UTC
+	if expire.length() != 10 or today.length() != 10:
+		return 0
+	if today <= expire:
+		return 1
+	return -1
+
+# =========================
+# 主入口：检查授权
+# =========================
+func check_license() -> bool:
+	var path = get_license_path()
+	
+	if not FileAccess.file_exists(path):
+		print("[LSM] config missing")      # 提示：找不到文件
+		return false
+	
+	var raw = read_file(path)
+	if raw == "":
+		print("[LSM] config empty")        # 提示：文件为空
+		return false
+	
+	var decrypted = decrypt(raw)
+	if decrypted == "":
+		print("[LSM] config unreadable")   # 提示：解密失败
+		return false
+	
+	var data = parse_json(decrypted)
+	if data.is_empty() or not data.has("expire"):
+		print("[LSM] config invalid")      # 提示：JSON 异常
+		print("[LSM] config invalid")      # 提示：JSON 异常
+		return false
+	
+	var status = _check_expire(data["expire"])
+	
+	match status:
+		1:
+			print("[LSM] runtime ok")      # 提示：授权有效
+			return true
+		-1:
+			print("[LSM] runtime end")     # 提示：授权过期
+			return false
+		_:
+			print("[LSM] runtime err")     # 提示：日期异常
+			return false

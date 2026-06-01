@@ -1,0 +1,39 @@
+; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
+config_version=5
+
+[application]
+
+config/name="GodotKit"
+run/main_scene="uid://dy6vymg41wb00"
+config/features=PackedStringArray("4.6", "GL Compatibility")
+boot_splash/show_image=false
+config/icon="uid://b5pt8eyhh83e0"
+
+[autoload]
+
+ConfigLoader="*uid://cwtii0bqp6n1v"
+AssetLoader="*uid://d05jpe5vdvjkp"
+LicenseManager="*uid://dy4jnbqs1mu1q"
+
+[file_customization]
+
+folder_colors={
+"res://scripts/core/": "yellow"
+}
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+
+[rendering]
+
+rendering_device/driver.windows="d3d12"
+renderer/rendering_method="gl_compatibility"
+renderer/rendering_method.mobile="gl_compatibility"

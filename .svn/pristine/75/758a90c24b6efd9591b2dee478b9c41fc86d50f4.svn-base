@@ -1,0 +1,142 @@
+class_name ConfigLoader
+extends Node
+
+## [b]ConfigLoader[/b]
+## 外部配置文件加载器，用于实现配置与节点属性的自动同步。
+##
+## [b]使用指南：[/b]
+## 作为普通节点使用时，请务必将此节点拖拽到场景树中 [b]最上方[/b]（即作为目标父节点的第一个子节点）。
+## 这样它会利用 Godot 的生命周期特性，在下方所有同级节点的 [code]_ready()[/code] 执行之前，率先完成数据的读取和覆盖。
+##
+## [b]注意：[/b] 配置文件中的键名必须与节点中定义的变量名完全一致。
+
+signal config_loaded # 当配置加载完成时触发
+
+@export_file("*.ini", "*.txt") var config_file_path: String = "data/config.ini" ## 配置文件路径
+@export var debug_print: bool = true ## 是否打印调试信息
+@export var auto_apply_on_ready: bool = true ## 是否在启动时自动覆盖场景树
+
+## 指定需要遍历覆盖的根节点。如果留空，默认将作用于当前节点的父节点及其所有子节点。
+@export var target_root: Node 
+
+var config := ConfigFile.new()
+var is_loaded: bool = false
+
+# ==========================================
+# 生命周期
+# ==========================================
+func _ready() -> void:
+	# 1. 节点刚准备好，立刻将硬盘数据加载到内存
+	load_settings(config_file_path)
+	
+	if auto_apply_on_ready and is_loaded:
+		# 2. 确定作用域（默认为自己的父节点，这样可以完美封装在一个 UI 预制体内部）
+		if target_root == null:
+			target_root = get_parent()
+			
+		# 3. 立即执行同步覆盖。因为本节点排在最前，后续同级节点（如视频、图片）此时还没执行 _ready
+		if target_root != null:
+			_log("开始遍历覆盖场景节点: " + target_root.name)
+			_apply_recursive(target_root)
+
+# ==========================================
+# 核心逻辑：读取与解析
+# ==========================================
+func load_settings(relative_path: String) -> void:
+	var base_dir = "res://" if OS.has_feature("editor") else OS.get_executable_path().get_base_dir()
+	var final_path = base_dir.path_join(relative_path)
+
+	if not FileAccess.file_exists(final_path):
+		_log("⚠️ 警告: 未找到配置文件: " + final_path)
+		return
+
+	var file = FileAccess.open(final_path, FileAccess.READ)
+	if not file:
+		push_error("[ConfigManager] 无法读取文件: " + final_path)
+		return
+
+	var raw_text = file.get_as_text()
+	file.close()
+
+	# 1. 反斜杠转正斜杠
+	raw_text = raw_text.replace("\\", "/")
+
+	# 2. 逐行处理：给没有加引号的字符串值自动补引号
+	var lines := raw_text.split("\n")
+	var fixed_lines : PackedStringArray = []
+	for line in lines:
+		fixed_lines.append(_fix_ini_line(line))
+	raw_text = "\n".join(fixed_lines)
+
+	var err = config.parse(raw_text)
+	if err == OK:
+		is_loaded = true
+		_log("✅ 加载成功, 包含小节: " + str(config.get_sections()))
+		config_loaded.emit()
+	else:
+		push_error("[ConfigManager] 解析失败, 错误码: %d. 请检查文件编码(需UTF-8)或格式。" % err)
+
+## 如果是 key = value 形式，且 value 既没有引号也不是数字/bool，就自动加引号
+func _fix_ini_line(line: String) -> String:
+	var stripped := line.strip_edges()
+
+	if stripped.begins_with(";") or stripped.begins_with("#") \
+	or stripped.begins_with("[") or stripped == "":
+		return line
+
+	var eq_pos := line.find("=")
+	if eq_pos == -1:
+		return line
+
+	var key := line.substr(0, eq_pos).strip_edges()
+	var val := line.substr(eq_pos + 1).strip_edges()
+
+	if val.begins_with('"') or val.begins_with("'"):
+		return line
+	if val == "true" or val == "false":
+		return line
+	if val.is_valid_float() or val.is_valid_int():
+		return line
+
+	# 空值补空引号，让 ConfigFile 能正确解析
+	if val == "":
+		return key + ' = ""'
+
+	return key + ' = "' + val + '"'
+
+# ==========================================
+# 核心逻辑：递归覆盖
+# ==========================================
+func _apply_recursive(node: Node) -> void:
+	if not node: return
+	
+	# 如果节点名在 INI 中有对应的小节，则注入属性
+	if config.has_section(node.name):
+		_apply_settings_to_node(node)
+	
+	for child in node.get_children():
+		# 避免自身配置被意外覆盖，并继续向下递归
+		if child != self:
+			_apply_recursive(child)
+
+func _apply_settings_to_node(target: Node) -> void:
+	var section = target.name
+	for key in config.get_section_keys(section):
+		# 检查目标节点是否存在该属性
+		if key in target:
+			var new_val = config.get_value(section, key)
+			target.set(key, new_val)
+			_log("注入 -> [%s] %s = %s" % [section, key, str(new_val)])
+
+# ==========================================
+# 工具方法
+# ==========================================
+## 提供给外部脚本主动获取配置项的接口
+func get_config(section: String, key: String, default_value: Variant = null) -> Variant:
+	if not is_loaded or not config.has_section(section):
+		return default_value
+	return config.get_value(section, key, default_value)
+
+func _log(msg: String) -> void:
+	if debug_print: 
+		print("[ConfigManager] ", msg)

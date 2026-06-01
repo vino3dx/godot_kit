@@ -1,0 +1,10 @@
+[gd_scene format=3 uid="uid://dy6vymg41wb00"]
+
+[ext_resource type="Script" uid="uid://d05jpe5vdvjkp" path="res://core/load/asset_loader.gd" id="2_2t0xv"]
+
+[node name="Test01" type="Node2D" unique_id=228382764]
+
+[node name="AssetLoader" type="Node" parent="." unique_id=566342611]
+script = ExtResource("2_2t0xv")
+image_dir = ""
+metadata/_custom_type_script = "uid://d05jpe5vdvjkp"

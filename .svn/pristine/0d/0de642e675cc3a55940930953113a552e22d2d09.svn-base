@@ -1,0 +1,27 @@
+extends Node2D
+
+enum my
+{
+	ONE,
+	TWO,
+	THREE
+}
+
+@export_category("网络")
+@export_group("这是标题")
+@export var wo: my = my.ONE
+@export var Test: bool = false
+
+@export_category("其他")
+@export_group("这是副标题")
+@export var wo1: my = my.ONE
+@export var Test1: bool = false
+@export var s1: float = 2.0
+@export var s2: int = 2
+@export var s3: Color = Color(0, 1, 0, 0.5)
+
+@export var res: Resource
+@export_range(0, 100, 0.5) var initial_progress: float = 20.0
+@export_enum("Red", "Green", "Blue") var team_color = "Red"
+@export_dir var save_folder: String
+@export_file("json") var config_path: String

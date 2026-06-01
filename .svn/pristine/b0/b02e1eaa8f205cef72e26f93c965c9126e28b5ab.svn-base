@@ -1,0 +1,146 @@
+class_name HeartbeatMonitor
+extends Node
+## [b]HeartbeatMonitor[/b]
+## 一个用于维持 TCP 长连接并周期性上报设备状态的网络节点。
+##
+## [b]功能特性：[/b][br]
+## • 自动连接服务器，并在断线后自动重连[br]
+## • 按固定间隔发送心跳状态包[br]
+## • 状态变更时立即上报（无延迟）[br]
+## • 统一报文格式：[br]
+## 　　ID:{device_id}:State:{state}:{tag}[br]
+## 　　State:{device_id}:{state}[br]
+## • 提供 connected / disconnected 信号，便于外部监听连接状态[br][br]
+##
+## [b]适用场景：[/b][br]
+## 适用于需要保持在线、持续上报状态的设备端或客户端程序。
+
+signal connected ## 当 TCP 成功建立连接时触发,可用于：更新 UI、开始业务流程、发送初始化数据等
+signal disconnected ## 当连接断开（异常/服务器关闭/网络问题）时触发,可用于：提示用户、暂停业务、进入重连逻辑等
+signal state_changed(new_state: int) ## 当设备状态发生变化时触发,可用于：UI状态同步、动画切换、业务逻辑响应等
+signal data_received(raw_string: String) ## 当收到服务器原始字符串数据时触发,可用于：上层协议解析、命令分发、自定义处理等
+
+@export var host: String = "124.222.32.81" ## 服务器地址
+@export var port: int = 8080 ## 服务器端口
+@export var device_id: int = 1 ## 设备 ID，用于上报
+
+@export var heartbeat_interval: float = 2.0 ## 心跳间隔（秒）
+@export var reconnect_delay: float = 3.0 ## 断线后重连延迟（秒）
+
+var client := StreamPeerTCP.new() # TCP 客户端对象
+
+var _connected := false # 当前连接状态
+var current_state: int = 0 # 当前设备状态（默认空闲 0）
+
+var _heartbeat_timer: Timer # 心跳计时器
+var _reconnect_timer: Timer # 重连计时器
+
+# -- 启动 --
+func _ready():
+	_setup_timers()
+	connect_to_server()
+
+# -- 连接 --
+func connect_to_server():
+	print("正在连接服务器... %s:%d" % [host, port])
+
+	var err = client.connect_to_host(host, port)
+	if err != OK:
+		push_error("连接失败: %s" % err)
+		_schedule_reconnect()
+
+func _process(_delta):
+	client.poll()
+	_handle_connection()
+	_read_data()
+
+# -- 状态检测 --
+func _handle_connection():
+	var status = client.get_status()
+
+	if status == StreamPeerTCP.STATUS_CONNECTED:
+		if not _connected:
+			_connected = true
+			print("连接成功！")
+			connected.emit()
+			_send_register()
+
+	elif status == StreamPeerTCP.STATUS_ERROR or status == StreamPeerTCP.STATUS_NONE:
+		if _connected:
+			_connected = false
+			print("连接断开！")
+			disconnected.emit()
+			client.disconnect_from_host()
+			_schedule_reconnect()
+
+# -- 心跳 --
+func _on_heartbeat_timer():
+	if not _connected:
+		return
+
+	_send_state_packet()
+
+# -- 状态控制 --
+func set_state(state: int):
+	if current_state == state:
+		return
+
+	current_state = state
+	print("状态切换:", state)
+	
+	state_changed.emit(state)   # 状态改变发送信号
+	
+	if _connected:
+		_send_state_packet() # 立即发送
+
+# -- 发送 --
+func _send_state_packet():
+	var msg = "State:%d:%d\r\n" % [device_id, current_state]
+	client.put_utf8_string(msg)
+
+	print("已发送:", msg.strip_edges())
+
+# 注册ID
+func _send_register():
+	var msg = "ID:%d:Md5\r\n" % device_id
+	client.put_utf8_string(msg)
+	print("已发送注册:", msg.strip_edges())
+
+# -- 接收（防粘包） --
+func _read_data():
+	if client.get_available_bytes() > 0:
+		var msg = client.get_utf8_string(client.get_available_bytes()).strip_edges()
+		print("收到服务器消息:", msg)
+		if msg.begins_with("Success"):
+			set_state(1)
+			state_changed.emit(1)
+		
+		data_received.emit(msg)
+
+# -- 定时器 --
+func _setup_timers():
+	# 心跳
+	_heartbeat_timer = Timer.new()
+	_heartbeat_timer.wait_time = heartbeat_interval
+	_heartbeat_timer.autostart = true
+	_heartbeat_timer.timeout.connect(_on_heartbeat_timer)
+	add_child(_heartbeat_timer)
+	
+	# 重连
+	_reconnect_timer = Timer.new()
+	_reconnect_timer.wait_time = reconnect_delay
+	_reconnect_timer.one_shot = true
+	_reconnect_timer.timeout.connect(_on_reconnect_timer)
+	add_child(_reconnect_timer)
+
+# -- 重连 --
+func _schedule_reconnect():
+	if not _reconnect_timer.is_stopped():
+		return
+
+	print("将在 %s 秒后重连..." % reconnect_delay)
+	_reconnect_timer.start()
+
+# -- 重连回调 --
+func _on_reconnect_timer():
+	connect_to_server() # 计时器触发后执行真正的重连动作

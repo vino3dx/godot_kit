@@ -1,0 +1,6 @@
+extends TextureRect
+
+@export var image_name: String = "a.jpg"
+
+func _ready():
+	texture = AssetLoader.instance.load_texture(image_name)
