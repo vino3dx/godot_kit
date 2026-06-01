@@ -18,15 +18,13 @@ config/icon="uid://b5pt8eyhh83e0"
 
 [autoload]
 
-ConfigLoader="*uid://cwtii0bqp6n1v"
 AssetLoader="*uid://d05jpe5vdvjkp"
-LicenseManager="*uid://dy4jnbqs1mu1q"
+ConfigLoader="*uid://cwtii0bqp6n1v"
+LicenseManager="uid://dy4jnbqs1mu1q"
 
-[file_customization]
+[editor_plugins]
 
-folder_colors={
-"res://scripts/core/": "yellow"
-}
+enabled=PackedStringArray("res://addons/vkit/plugin.cfg")
 
 [physics]
 

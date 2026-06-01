@@ -1,3 +1,6 @@
 [gd_scene format=3 uid="uid://cxwoxyrvbwsus"]
 
+[ext_resource type="Script" uid="uid://dh64ufjycw4j8" path="res://scenes/2授权到期测试/授权.gd" id="1_6bkrt"]
+
 [node name="授权" type="Node" unique_id=885952770]
+script = ExtResource("1_6bkrt")
